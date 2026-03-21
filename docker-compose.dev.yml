@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  # MongoDB
+  mongo:
+    image: mongo:7.0
+    container_name: fastapi_mongo_dev
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: taskdb
+    volumes:
+      - mongo_data_dev:/data/db
+    networks:
+      - fastapi_network_dev
+    restart: unless-stopped
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: fastapi_redis_dev
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data_dev:/data
+    networks:
+      - fastapi_network_dev
+    restart: unless-stopped
+    command: redis-server
+
+  # FastAPI Application (Development)
+  app:
+    build:
+      context: ./fastapi-learning
+      dockerfile: Dockerfile.dev
+    container_name: fastapi_app_dev
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./fastapi-learning:/app
+    environment:
+      MONGO_URI: mongodb://mongo:27017
+      MONGO_DB: taskdb
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-key}
+      ACCESS_TOKEN_EXPIRE_MINUTES: 60
+      REFRESH_TOKEN_EXPIRE_MINUTES: 10080
+    depends_on:
+      - mongo
+      - redis
+    networks:
+      - fastapi_network_dev
+    restart: unless-stopped
+
+volumes:
+  mongo_data_dev:
+    driver: local
+  redis_data_dev:
+    driver: local
+
+networks:
+  fastapi_network_dev:
+    driver: bridge
