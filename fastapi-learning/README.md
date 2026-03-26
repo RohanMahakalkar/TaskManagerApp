@@ -125,20 +125,26 @@ REFRESH_TOKEN_EXPIRE_MINUTES=10080
 
 ### Architecture
 
-```
-┌─────────────┐
-│   Nginx     │ ← Port 80/443 (Reverse Proxy)
-└──────┬──────┘
-       │
-┌──────▼───────┐
-│   FastAPI    │ ← Port 8000
-└──────┬───────┘
-       │
-  ┌────┴────┐
-  │          │
-┌─▼──┐    ┌─▼──┐
-│ DB │    │Redis│
-└────┘    └─────┘
+```mermaid
+flowchart LR
+  Browser[(Browser / API Client)]
+
+  subgraph Infra["Docker Compose Cluster"]
+    NGINX[Nginx (reverse proxy, 80/443)]
+    FASTAPI[FastAPI App (8000 internal / 8001 dev)]
+    MONGO[MongoDB (27017)]
+    REDIS[Redis (6379)]
+  end
+
+  Browser -->|HTTPS/HTTP| NGINX
+  NGINX -->|proxy pass| FASTAPI
+  FASTAPI -->|CRUD + auth| MONGO
+  FASTAPI -->|cache read/write| REDIS
+
+  style NGINX stroke:#1f77b4,stroke-width:2px
+  style FASTAPI stroke:#ff7f0e,stroke-width:2px
+  style MONGO stroke:#2ca02c,stroke-width:2px
+  style REDIS stroke:#d62728,stroke-width:2px
 ```
 
 ### Features
@@ -179,6 +185,7 @@ This ensures stale task lists are refreshed after changes.
 ### Rate Limit Testing
 
 In `tests/test_api.py`, there is a dedicated check:
+
 - Set `RATE_LIMIT_PER_MINUTE=3` for isolated test behavior
 - Ensure first `GET /tasks` is allowed and immediate next request triggers `429` response
 
