@@ -1,4 +1,5 @@
 from datetime import datetime
+import json
 
 from fastapi import APIRouter, HTTPException, Depends, Query
 from bson import ObjectId
@@ -7,6 +8,7 @@ from typing import Optional
 from database import tasks_collection
 from schemas import TaskCreate, TaskUpdate, TaskOut
 from auth import get_current_user, require_roles
+from cache import get_cache, set_cache, invalidate_user_tasks_cache
 
 tasks_router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -20,6 +22,8 @@ def create_task(task: TaskCreate, current_user: dict = Depends(get_current_user)
         "created_at": now,
         "updated_at": now,
     })
+
+    invalidate_user_tasks_cache(current_user["user_id"])
     return {"task_id": str(result.inserted_id)}
 
 
@@ -34,23 +38,28 @@ def get_tasks(
     if search:
         query["name"] = {"$regex": search, "$options": "i"}
 
+    cache_key = f"tasks:{current_user['user_id']}:{page}:{limit}:{search or ''}"
+    cached_data = get_cache(cache_key)
+    if cached_data:
+        return json.loads(cached_data)
+
     total = tasks_collection.count_documents(query)
     skip = (page - 1) * limit
 
     cursor = tasks_collection.find(query).skip(skip).limit(limit)
 
-    tasks = [
-        TaskOut(
+    tasks = []
+    for task in cursor:
+        task_out = TaskOut(
             id=str(task["_id"]),
             name=task["name"],
             user_id=task["user_id"],
             created_at=task.get("created_at"),
             updated_at=task.get("updated_at"),
         )
-        for task in cursor
-    ]
+        tasks.append(task_out.dict())
 
-    return {
+    response = {
         "page": page,
         "limit": limit,
         "total": total,
@@ -58,6 +67,11 @@ def get_tasks(
         "search": search,
         "items": tasks,
     }
+
+    cache_key = f"tasks:{current_user['user_id']}:{page}:{limit}:{search or ''}"
+    set_cache(cache_key, response)
+
+    return response
 
 
 @tasks_router.put("/{task_id}", response_model=dict)
@@ -81,6 +95,7 @@ def update_task(task_id: str, payload: TaskUpdate, current_user: dict = Depends(
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Task not found")
 
+    invalidate_user_tasks_cache(current_user["user_id"])
     return {"task_id": task_id, "status": "updated"}
 
 
@@ -99,4 +114,5 @@ def delete_task(task_id: str, current_user: dict = Depends(require_roles("admin"
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Task not found")
 
+    invalidate_user_tasks_cache(current_user["user_id"])
     return {"message": "Task deleted"}

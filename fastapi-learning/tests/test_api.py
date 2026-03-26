@@ -6,6 +6,7 @@ os.environ["MONGO_DB"] = "taskdb_test"
 
 from main import app
 from database import users_collection, tasks_collection
+from cache import redis_client
 
 
 @pytest.fixture(autouse=True)
@@ -78,3 +79,32 @@ async def test_full_task_flow():
         r = await client.get("/tasks", headers={"Authorization": f"Bearer {token}"})
         assert r.status_code == 200
         assert r.json()["total"] == 0
+
+
+@pytest.mark.asyncio
+async def test_get_tasks_uses_redis_cache():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        r = await client.post("/signup", json={"username": "bob", "password": "sekret"})
+        assert r.status_code == 200
+
+        r = await client.post("/login", data={"username": "bob", "password": "sekret"})
+        assert r.status_code == 200
+        token = r.json()["access_token"]
+
+        r = await client.post(
+            "/tasks",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"name": "Cache me"},
+        )
+        assert r.status_code == 200
+
+        r1 = await client.get("/tasks", headers={"Authorization": f"Bearer {token}"})
+        assert r1.status_code == 200
+
+        r2 = await client.get("/tasks", headers={"Authorization": f"Bearer {token}"})
+        assert r2.status_code == 200
+        assert r2.json()["total"] == 1
+
+        if redis_client:
+            keys = redis_client.keys("tasks:*")
+            assert len(keys) >= 1
