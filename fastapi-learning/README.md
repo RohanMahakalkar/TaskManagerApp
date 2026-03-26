@@ -168,6 +168,20 @@ REFRESH_TOKEN_EXPIRE_MINUTES=10080
 
 This ensures stale task lists are refreshed after changes.
 
+### Rate Limiting
+
+- **Middleware**: `RateLimitMiddleware` in `rate_limit.py` is automatically added in `main.py`.
+- **Configurable limit** via environment variable `RATE_LIMIT_PER_MINUTE` (default `60`).
+- **Token bucket window**: 60 seconds.
+- **Exceeding limit**: returns `429 Too Many Requests` with `Retry-After` header and body `{"detail": "Rate limit exceeded. Try again later."}`.
+- Response headers include `X-RateLimit-Limit` and `X-RateLimit-Remaining`.
+
+### Rate Limit Testing
+
+In `tests/test_api.py`, there is a dedicated check:
+- Set `RATE_LIMIT_PER_MINUTE=3` for isolated test behavior
+- Ensure first `GET /tasks` is allowed and immediate next request triggers `429` response
+
 ### Access Services
 
 **Inside Docker:**

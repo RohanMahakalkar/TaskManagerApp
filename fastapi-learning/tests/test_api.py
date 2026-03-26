@@ -4,9 +4,22 @@ from httpx import AsyncClient, ASGITransport
 
 os.environ["MONGO_DB"] = "taskdb_test"
 
+import os
+
 from main import app
 from database import users_collection, tasks_collection
 from cache import redis_client
+from rate_limit import reset_rate_limit_storage
+
+
+@pytest.fixture(autouse=True)
+def clear_rate_limit():
+    original_limit = os.environ.pop("RATE_LIMIT_PER_MINUTE", None)
+    reset_rate_limit_storage()
+    yield
+    reset_rate_limit_storage()
+    if original_limit is not None:
+        os.environ["RATE_LIMIT_PER_MINUTE"] = original_limit
 
 
 @pytest.fixture(autouse=True)
@@ -79,6 +92,30 @@ async def test_full_task_flow():
         r = await client.get("/tasks", headers={"Authorization": f"Bearer {token}"})
         assert r.status_code == 200
         assert r.json()["total"] == 0
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_rejected_after_threshold():
+    import os
+
+    os.environ["RATE_LIMIT_PER_MINUTE"] = "3"
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        r = await client.post("/signup", json={"username": "ratelimit", "password": "sekret"})
+        assert r.status_code == 200
+
+        r = await client.post("/login", data={"username": "ratelimit", "password": "sekret"})
+        assert r.status_code == 200
+        token = r.json()["access_token"]
+
+        # first allowed request after signup/login
+        r1 = await client.get("/tasks", headers={"Authorization": f"Bearer {token}"})
+        assert r1.status_code == 200
+
+        # second task call should exceed the configured limit (3-per-minute globally)
+        r2 = await client.get("/tasks", headers={"Authorization": f"Bearer {token}"})
+        assert r2.status_code == 429
+        assert "Rate limit exceeded" in r2.json()["detail"]
 
 
 @pytest.mark.asyncio
