@@ -54,12 +54,14 @@ The application is fully containerized with Docker Compose, including MongoDB, R
 ### Quick Start
 
 **Production (with Nginx):**
+
 ```bash
 docker-compose up -d
 # API available at: http://localhost
 ```
 
 **Development (with hot reload):**
+
 ```bash
 docker-compose -f docker-compose.dev.yml up -d
 # API available at: http://localhost:8000
@@ -67,12 +69,12 @@ docker-compose -f docker-compose.dev.yml up -d
 
 ### Services
 
-| Service | Port | Notes |
-|---------|------|-------|
-| FastAPI | 8001 | Direct access (internal) |
-| Nginx | 80/443 | Reverse proxy (public) |
-| MongoDB | 27017 | Database |
-| Redis | 6379 | Caching layer |
+| Service | Port   | Notes                    |
+| ------- | ------ | ------------------------ |
+| FastAPI | 8001   | Direct access (internal) |
+| Nginx   | 80/443 | Reverse proxy (public)   |
+| MongoDB | 27017  | Database                 |
+| Redis   | 6379   | Caching layer            |
 
 ### Docker Commands
 
@@ -146,13 +148,30 @@ REFRESH_TOKEN_EXPIRE_MINUTES=10080
 - ✅ **Non-root user** - Security best practice
 - ✅ **Persistent volumes** - Data survives container restarts
 - ✅ **Nginx caching** - Gzip compression, SSL-ready
-- ✅ **Redis integration** - For future caching needs
+- ✅ **Redis integration** - For fast task-list caching
 - ✅ **Development/Production** - Separate compose files
 - ✅ **Hot reload** - Development mode with auto-reload
+
+### Redis Task Cache Behavior
+
+- **What is cached**: `GET /tasks` responses are cached per user and query parameters.
+  - Key template: `tasks:{user_id}:{page}:{limit}:{search}`
+  - Value: JSON payload containing `page`, `limit`, `total`, `pages`, `search`, `items`
+  - `items` is a list of tasks with `id`, `name`, `user_id`, `created_at`, `updated_at`
+
+- **TTL**: configured via environment variable `REDIS_TTL_SECONDS` (default `60` seconds). Cached entries auto-expire after TTL.
+
+- **Invalidation on write**:
+  - `POST /tasks` (create) invalidates `tasks:{user_id}:*` keys.
+  - `PUT /tasks/{task_id}` (update) invalidates `tasks:{user_id}:*` keys.
+  - `DELETE /tasks/{task_id}` (delete) invalidates `tasks:{user_id}:*` keys.
+
+This ensures stale task lists are refreshed after changes.
 
 ### Access Services
 
 **Inside Docker:**
+
 ```bash
 # FastAPI
 curl http://localhost/health
